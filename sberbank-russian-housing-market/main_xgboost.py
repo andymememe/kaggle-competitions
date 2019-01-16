@@ -1,5 +1,6 @@
 import pandas as pd
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import KFold
 import xgboost as xgb
@@ -10,7 +11,7 @@ def main():
     param = {'max_depth': 2,
              'eta': 1,
              'silent': 1,
-             'objective': 'reg:logistic',
+             'objective': 'reg:linear',
              'eval_metric': 'rmse'
             }
     num_round = 2
@@ -45,7 +46,14 @@ def main():
     # Drop useless data
     trainSet.drop(['timestamp'], axis=1, inplace=True)
     testSet.drop(['timestamp'], axis=1, inplace=True)
-    trainSet = trainSet.select_dtypes(exclude='object')
+    for column in trainSet.drop(['price_doc'], axis=1).columns:
+        if trainSet[column].dtype == type(object):
+            colAll = pd.concat([trainSet[column].astype(str),
+                                testSet[column].astype(str)])
+            le = LabelEncoder()
+            le.fit(colAll)
+            trainSet[column] = le.transform(trainSet[column].astype(str))
+            testSet[column] = le.transform(testSet[column].astype(str))
     testSet = testSet[trainSet.drop(['price_doc'], axis=1).columns.values]
 
     # Split X, Y
@@ -63,14 +71,15 @@ def main():
     # Train
     print('Training...')
     trainData = xgb.DMatrix(trainX, label=trainY)
-    bst = xgb.cv(param, trainData, num_round,
-                 nfold=5, stratified=True, metrics='rmse',
+    record = xgb.cv(param, trainData, num_round,
+                 nfold=5, metrics='rmse',
                  early_stopping_rounds=10)
-    bst = xgb.train(param, trainData, num_round, early_stopping_rounds=10)
-    print('Total score:', clf.best_score_)
+    print(record)
+    bst = xgb.train(param, trainData, num_round)
     
     # Test
     print('Testing...')
+    testX = xgb.DMatrix(testX)
     testY = bst.predict(testX)
     with open('output/submission.csv', 'w') as f:
         f.write('id,price_doc\n')
