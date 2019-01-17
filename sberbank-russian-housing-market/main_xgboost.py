@@ -1,5 +1,6 @@
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import KFold
@@ -7,14 +8,16 @@ import xgboost as xgb
 
 def main():
     # Init Model
-    imputer = SimpleImputer(strategy='median')
-    param = {'max_depth': 2,
-             'eta': 1,
-             'silent': 1,
+    param = {'max_depth': 5,
+             'eta': 0.1,
+             'subsample': 0.8,
+             'colsample_bytree': 0.8,
              'objective': 'reg:linear',
-             'eval_metric': 'rmse'
+             'eval_metric': 'rmse',
+             'gamma': 0,
+             'silent': 1
             }
-    num_round = 2
+    num_round = 1000
     rs = RobustScaler()
 
     # Import data
@@ -57,14 +60,12 @@ def main():
     testSet = testSet[trainSet.drop(['price_doc'], axis=1).columns.values]
 
     # Split X, Y
-    trainY = trainSet.pop('price_doc').values
+    trainY = np.log1p(trainSet.pop('price_doc').values)
     trainX = trainSet.values
     testX = testSet.values
 
     # Preprocessing
     print('Preprocessing...')
-    trainX = imputer.fit_transform(trainX)
-    testX = imputer.transform(testX)
     trainX = rs.fit_transform(trainX)
     testX = rs.transform(testX)
     
@@ -72,15 +73,14 @@ def main():
     print('Training...')
     trainData = xgb.DMatrix(trainX, label=trainY)
     record = xgb.cv(param, trainData, num_round,
-                 nfold=5, metrics='rmse',
-                 early_stopping_rounds=10)
+                    early_stopping_rounds=20)
     print(record)
     bst = xgb.train(param, trainData, num_round)
     
     # Test
     print('Testing...')
     testX = xgb.DMatrix(testX)
-    testY = bst.predict(testX)
+    testY = np.exp(bst.predict(testX)) - 1
     with open('output/submission.csv', 'w') as f:
         f.write('id,price_doc\n')
         for id, result in zip(testIndices, testY):
